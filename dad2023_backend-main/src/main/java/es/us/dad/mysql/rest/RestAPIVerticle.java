@@ -7,6 +7,7 @@ import com.sun.rowset.internal.Row;
 import es.us.dad.mysql.entities.Device;
 import es.us.dad.mysql.entities.Group;
 import es.us.dad.mysql.entities.Sensor;
+import es.us.dad.mysql.entities.SensorType;
 import es.us.dad.mysql.entities.SensorValue;
 import es.us.dad.mysql.messages.DatabaseEntity;
 import es.us.dad.mysql.messages.DatabaseMessage;
@@ -66,11 +67,11 @@ public class RestAPIVerticle extends AbstractVerticle {
 		router.delete("/api/groups/:groupid").handler(this::deleteGroup);
 		router.put("/api/groups/:groupid").handler(this::putGroup);
 		router.put("/api/groups/:groupid/:deviceid").handler(this::addDeviceToGroup);
-		router.get("/api/groups/:groupid").handler(this::getDevicesFromGroupId);
+		router.get("/api/groupss/:groupid").handler(this::getDevicesFromGroupId);
 		
 		//SensorValue endpoints:
 		
-		router.get("/api/sensorvalues/:sensorid/:limit").handler(this::getLatestSensorValueBySensorId);
+		router.get("/api/sensorvaluess/:sensorid/limite/:limit").handler(this::getLatestSensorValueBySensorId);
 		router.post("/api/sensorvalues").handler(this::addSensorValue);
 		router.get("/api/sensorvalues/:sensorid").handler(this::getLastSensorValueBySensorId);
 		router.delete("/api/sensorvalues/:sensorvalueid").handler(this::deleteSensorValue);
@@ -258,7 +259,7 @@ public class RestAPIVerticle extends AbstractVerticle {
 			if (handler.succeeded()) {
 				DatabaseMessage responseMessage = deserializeDatabaseMessageFromMessageHandler(handler);
 				routingContext.response().putHeader("content-type", "application/json").setStatusCode(200)
-						.end(gson.toJson(responseMessage.getResponseBodyAs(Group.class)));
+						.end(gson.toJson(responseMessage.getResponseBodyAs(Device[].class)));
 			} else {
 				routingContext.response().putHeader("content-type", "application/json").setStatusCode(500).end();
 			}
@@ -310,16 +311,19 @@ public class RestAPIVerticle extends AbstractVerticle {
 	private void getLatestSensorValueBySensorId(RoutingContext routingContext) {
 		int sensorVId = Integer.parseInt(routingContext.request().getParam("sensorvalueid"));
 		int limit = Integer.parseInt(routingContext.request().getParam("limit"));
-		DatabaseMessageLatestValues i = new DatabaseMessageLatestValues(sensorVId, limit);
+		DatabaseMessageLatestValues lv = gson.fromJson(routingContext.getBodyAsString(), DatabaseMessageLatestValues.class);
+//		DatabaseMessageLatestValues i = new DatabaseMessageLatestValues(sensorVId, limit);
+		lv.setId(sensorVId);
+		lv.setLimit(limit);
 
 		DatabaseMessage databaseMessage = new DatabaseMessage(DatabaseMessageType.SELECT, DatabaseEntity.SensorValue,
-				DatabaseMethod.GetLatestSensorValuesFromSensorId, i);
+				DatabaseMethod.GetLatestSensorValuesFromSensorId, gson.toJson(lv));
 
 		vertx.eventBus().request(RestEntityMessage.SensorValue.getAddress(), gson.toJson(databaseMessage), handler -> {
 			if (handler.succeeded()) {
 				DatabaseMessage responseMessage = deserializeDatabaseMessageFromMessageHandler(handler);
 				routingContext.response().putHeader("content-type", "application/json").setStatusCode(200)
-						.end(gson.toJson(responseMessage.getResponseBodyAs(Sensor.class)));
+						.end(gson.toJson(responseMessage.getResponseBodyAs(SensorValue[].class)));
 			} else {
 				routingContext.response().putHeader("content-type", "application/json").setStatusCode(500).end();
 			}

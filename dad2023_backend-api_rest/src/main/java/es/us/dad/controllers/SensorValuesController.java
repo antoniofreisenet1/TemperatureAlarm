@@ -81,11 +81,23 @@ public class SensorValuesController extends AbstractController {
 											.future().onComplete(resDevice -> {
 												Device device = resDevice.result().getResponseBodyAs(Device.class);
 												if (resDevice.succeeded()) {
+													
 													// Publish MQTT Message in device MQTT topic
-													mqttClientUtil.publishMqttMessage(device.getMqttChannel(),
-															gson.toJson(sensorValue), handler -> {
-																System.out.println(handler.result());
-															});
+//													mqttClientUtil.publishMqttMessage(device.getMqttChannel(),
+//															gson.toJson(sensorValue), handler -> {
+//																System.out.println(handler.result());
+//															});
+													if(sensorValue.getValue() >27.5) {
+														mqttClientUtil.publishMqttMessage(
+																device.getMqttChannel(), "1",
+																handler -> {System.out.println(handler.result());
+																});
+													} else {
+														mqttClientUtil.publishMqttMessage(
+																device.getMqttChannel(), "0",
+																handler -> {System.out.println(handler.result());
+																});
+													}
 
 													// Getting group entity from idGroup property present in Device
 													launchDatabaseOperation(DatabaseEntity.Group,
@@ -99,11 +111,14 @@ public class SensorValuesController extends AbstractController {
 																	// Publish MQTT Message in group' MQTT topic
 																	// TODO: implements business logic here (publish
 																	// some readable message for devices in group)
+																	
 																	mqttClientUtil.publishMqttMessage(
 																			group.getMqttChannel(),
 																			gson.toJson(sensorValue), handler -> {
 																				System.out.println(handler.result());
 																			});
+																	
+																	
 																}
 															});
 

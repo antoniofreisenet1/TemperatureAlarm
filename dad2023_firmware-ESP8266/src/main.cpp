@@ -7,13 +7,25 @@
 #include <DHT.h>
 #include <DHT_U.h>
 
+#define DHTTYPE DHT22
+
 
 
 
 // Replace 0 by ID of this current device
 const int DEVICE_ID = 124;
+const int sensor_id = 72;
+const int actuator_id = 3;
+String mqttmsg;
 
-//int test_delay = 1000; // so we don't spam the API
+// VARIABLES
+
+const int sensorPin = 2; //esto es el pin D4
+const int actuatorPin = 12; //esto es el pin D6
+
+//DHT Sensor declaration
+DHT dht(sensorPin, DHTTYPE);
+int test_delay = 4000; // so we don't spam the API
 boolean describe_tests = true;
 
 // Replace 0.0.0.0 by your server local IP (ipconfig [windows] or ifconfig [Linux o MacOS] gets IP assigned to your PC)
@@ -21,8 +33,13 @@ String serverName = "http://192.168.43.195:8080/";
 HTTPClient http;
 
 // Replace WifiName and WifiPassword by your WiFi credentials
+/* #define STASSID "Livebox6-4E4E"    //"Your_Wifi_SSID"
+#define STAPSK "3bD6JnR6z9DC" //"Your_Wifi_PASSWORD" */
+
+
 #define STASSID "AquarisV_ajm"    //"Your_Wifi_SSID"
 #define STAPSK "ajmTest123" //"Your_Wifi_PASSWORD"
+
 
 // NTP (Net time protocol) settings
 WiFiUDP ntpUDP;
@@ -30,24 +47,23 @@ NTPClient timeClient(ntpUDP);
 
 // MQTT configuration
 WiFiClient client;
-PubSubClient mqttClient(client);
+WiFiClient client2;
+PubSubClient mqttClient(client2);
 
 // Server IP, where de MQTT broker is deployed
 const char *MQTT_BROKER_ADRESS = "192.168.43.195";
 const uint16_t MQTT_PORT = 1883;
 
 // Name for this MQTT client
-const char *MQTT_CLIENT_NAME = "mqttChannelDevice1";
+const char *MQTT_CLIENT_NAME = "192.168.43.195";
+const char *MQTT_CHANNEL = "mqttChannelDevice5";
 
 // Pinout settings
-const int sensorPin = 0; const int actuatorPinB = 0; const int actuatorPinA = 0;
-const int analogSensorPin = 34;
-const int digitalSensorPin = 13;
-const int actuatorPin = 15;
-const int analogActuatorPin = 16;
+
 
 // callback a ejecutar cuando se recibe un mensaje
 // en este ejemplo, muestra por serial el mensaje recibido
+
 void OnMqttReceived(char *topic, byte *payload, unsigned int length)
 {
   Serial.print("Received on ");
@@ -61,6 +77,7 @@ void OnMqttReceived(char *topic, byte *payload, unsigned int length)
   }
   Serial.print(content);
   Serial.println();
+  mqttmsg=content;
 }
 
 // inicia la comunicacion MQTT
@@ -75,37 +92,32 @@ void InitMqtt()
 void setup()
 {
   Serial.begin(9600);
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(STASSID);
-
+  //Serial.println();
+  //Serial.print("Connecting to ");
+  //Serial.println(STASSID);
+  dht.begin();
+  mqttmsg = "";
   /* Explicitly set the ESP32 to be a WiFi-client, otherwise, it by default,
      would try to act as both a client and an access-point and could cause
      network-issues with your other WiFi-devices on your WiFi-network. */
   WiFi.mode(WIFI_STA);
   WiFi.begin(STASSID, STAPSK);
-
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
     Serial.print(".");
   }
-
   InitMqtt();
-
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
   Serial.println("Setup!");
-
   // Configure pin modes for actuators (output mode) and sensors (input mode). Pin numbers should be described by GPIO number (https://www.upesy.com/blogs/tutorials/esp32-pinout-reference-gpio-pins-ultimate-guide)
   // For ESP32 WROOM 32D https://uelectronics.com/producto/esp32-38-pines-esp-wroom-32/
   // You must find de pinout for your specific board version
   pinMode(actuatorPin, OUTPUT);
-  pinMode(analogSensorPin, INPUT);
-  pinMode(digitalSensorPin, INPUT);
-  pinMode(analogActuatorPin, OUTPUT);
+  //pinMode(sensorPin, INPUT);
 
   // Init and get the time
   timeClient.begin();
@@ -113,12 +125,12 @@ void setup()
 
 String response;
 
-String serializeSensorValueBody(int idSensor, long timestamp, float value)
+String serializeSensorValueBody(int idSensor, long timestamp, float value) //he quitado long timestamp
 {
   // StaticJsonObject allocates memory on the stack, it can be
-  // replaced by DynamicJsonDocument which allocates in the heap.
+  // replaced by StaticJsonDocument<200> which allocates in the heap.
   //
-  DynamicJsonDocument doc(2048);
+  StaticJsonDocument<400> doc;
 
   // Add values in the document
   //
@@ -138,7 +150,7 @@ String serializeSensorValueBody(int idSensor, long timestamp, float value)
 
 String serializeActuatorStatusBody(float status, bool statusBinary, int idActuator, long timestamp)
 {
-  DynamicJsonDocument doc(2048);
+  StaticJsonDocument<200> doc;
 
   doc["status"] = status;
   doc["statusBinary"] = statusBinary;
@@ -153,7 +165,7 @@ String serializeActuatorStatusBody(float status, bool statusBinary, int idActuat
 
 String serializeDeviceBody(String deviceSerialId, String name, String mqttChannel, int idGroup)
 {
-  DynamicJsonDocument doc(2048);
+  StaticJsonDocument<200> doc;
 
   doc["deviceSerialId"] = deviceSerialId;
   doc["name"] = name;
@@ -169,7 +181,7 @@ void deserializeActuatorStatusBody(String responseJson)
 {
   if (responseJson != "")
   {
-    DynamicJsonDocument doc(2048);
+    StaticJsonDocument<200> doc;
 
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, responseJson);
@@ -193,10 +205,13 @@ void deserializeActuatorStatusBody(String responseJson)
   }
 }
 
-void deserializeSensorValue(String responseJson){
-  if (responseJson != "")
+void deserializeSensorValue(int httpResponseCode){
+  if (httpResponseCode > 0)
   {
-    DynamicJsonDocument doc(2048);
+
+    Serial.printf("HTTP Response Code: %d", httpResponseCode);
+    String responseJson = http.getString();
+    StaticJsonDocument<400> doc;
 
     // Deserialize the JSON document
     DeserializationError error = deserializeJson(doc, responseJson);
@@ -204,7 +219,7 @@ void deserializeSensorValue(String responseJson){
     // Test if parsing succeeds.
     if (error)
     {
-      Serial.print(F("deserializeJson() failed: "));
+      Serial.println("deserializeJson() failed: ");
       Serial.println(error.f_str());
       return;
     }
@@ -216,7 +231,7 @@ void deserializeSensorValue(String responseJson){
     long timestamp = doc["timestamp"];
     boolean removed = doc["removed"];
 
-    Serial.println(("Actuator status deserialized: [idSensorState: "
+    Serial.println(("Sensor value deserialized: [idSensorState: "
      + String(idSensorValue) + ", value: " + String(value) + ", idSensor: " + String(idSensor)
        + ", timestamp: " + String(timestamp) + ", removed" + String(removed) + "]").c_str());
   }
@@ -231,7 +246,7 @@ void deserializeDeviceBody(int httpResponseCode)
     Serial.print("HTTP Response code: ");
     Serial.println(httpResponseCode);
     String responseJson = http.getString();
-    DynamicJsonDocument doc(2048);
+    StaticJsonDocument<200> doc;
 
     DeserializationError error = deserializeJson(doc, responseJson);
 
@@ -248,7 +263,8 @@ void deserializeDeviceBody(int httpResponseCode)
     String mqttChannel = doc["mqttChannel"];
     int idGroup = doc["idGroup"];
 
-    Serial.println(("Device deserialized: [idDevice: " + String(idDevice) + ", name: " + name + ", deviceSerialId: " + deviceSerialId + ", mqttChannel" + mqttChannel + ", idGroup: " + idGroup + "]").c_str());
+    Serial.println(("Device deserialized: [idDevice: " + String(idDevice) + ", name: "
+     + name + ", deviceSerialId: " + deviceSerialId + ", mqttChannel" + mqttChannel + ", idGroup: " + idGroup + "]").c_str());
   }
   else
   {
@@ -266,7 +282,7 @@ void deserializeSensorsFromDevice(int httpResponseCode)
     Serial.println(httpResponseCode);
     String responseJson = http.getString();
     // allocate the memory for the document
-    DynamicJsonDocument doc(ESP.getMaxFreeBlockSize());
+    StaticJsonDocument<200> doc;
 
     // parse a JSON array
     DeserializationError error = deserializeJson(doc, responseJson);
@@ -306,7 +322,7 @@ void deserializeActuatorsFromDevice(int httpResponseCode)
     Serial.println(httpResponseCode);
     String responseJson = http.getString();
     // allocate the memory for the document
-    DynamicJsonDocument doc(ESP.getMaxFreeBlockSize());
+    StaticJsonDocument<200> doc;
 
     // parse a JSON array
     DeserializationError error = deserializeJson(doc, responseJson);
@@ -356,25 +372,14 @@ void test_response(int httpResponseCode)
 
 void describe(char *description)
 {
-  if (describe_tests)
-    Serial.println(description);
+ // if (describe_tests)
+    //Serial.println(description);
 }
 
 //PRUEBA DE GET: NO ES NECESARIO MANTENER EN LA IMPLEMENTACION FINAL
 //Función: devuelve 5 dispositivos con id creciente.
 
-void GET_DEFINITIVO(){
-  //el get maestro para obtener todo lo neceasrio
-  
 
-  describe("HOLA ESTE ES EL GET DEFINITIVO");
-  for(int i=0; i<5; i++){
-    String serverPath = serverName + "api/devices/" + String(DEVICE_ID + i);
-    http.begin(client, serverPath.c_str());
-    deserializeDeviceBody(http.GET());
-  }
-  
-}
 void GET_tests()
 {
   describe("Test GET full device info");
@@ -407,26 +412,17 @@ void GET_tests()
 //TEST DE UNA FUNCION DE PUT: ACTUALIZA EL VALOR DE UN DISPOSITIVO EN LA BBDD SEGÚN ID
 //TODO: PASARLO A ECLIPSE Y QUITARLO DE VSC
 
-void PUT_TEST(){
-
-  describe("EL put DEFINITIVO DE UN PIN");
-  String serverPath = serverName + "api/devices/" + DEVICE_ID;
-  http.begin(client, serverPath.c_str());
-  String device_body = serializeDeviceBody(String(DEVICE_ID), "Device number 7", "mqttChannelDevice7", 7);
-  test_response(http.PUT(device_body));
-}
-
 void POST_tests()
 {
-  String actuator_states_body = serializeActuatorStatusBody(random(2000, 4000) / 100, true, 1, millis());
+  /* String actuator_states_body = serializeActuatorStatusBody(random(2000, 4000) / 100, true, 1, millis());
   describe("Test POST with actuator state");
   String serverPath = serverName + "api/actuator_states";
   http.begin(client, serverPath.c_str());
-  test_response(http.POST(actuator_states_body));
+  test_response(http.POST(actuator_states_body)); */
 
-  String sensor_value_body = serializeSensorValueBody(18, millis(), random(2000, 4000) / 100);
+  String sensor_value_body = serializeSensorValueBody(72, millis(), random(2000, 4000) / 100);
   describe("Test POST with sensor value");
-  serverPath = serverName + "api/sensor_values";
+  String serverPath = serverName + "api/sensor_values";
   http.begin(client, serverPath.c_str());
   test_response(http.POST(sensor_value_body));
 
@@ -438,15 +434,17 @@ void POST_tests()
 }
 
 //POST sensorValues: recibe idSensor y valor para subirlo a la bbdd. 
-
-void POST_sv(int idSensor, float valor){
-   String sensor_value_body = serializeSensorValueBody(idSensor, millis(), valor);
-  describe("Test POST with sensor value from Sensors");
-  String serverPath = serverName + "api/sensor_values";
-  http.begin(client, serverPath.c_str());
-  test_response(http.POST(sensor_value_body));
+void POST_null(){
+  test_response(http.POST(""));
 }
-
+void POST_sv(float valor){
+  String sensor_value_body2 = serializeSensorValueBody(sensor_id, millis(), valor);
+  describe("POST SENSOR VALUES");
+  String serverPath2 = serverName + "api/sensor_values";
+  http.begin(client, serverPath2.c_str());
+  test_response(http.POST(sensor_value_body2));
+  //http.POST("{\'ejemplo\': \'hola\'}");
+}
 // conecta o reconecta al MQTT
 // consigue conectar -> suscribe a topic y publica un mensaje
 // no -> espera 5 segundos
@@ -455,8 +453,9 @@ void ConnectMqtt()
   Serial.print("Starting MQTT connection...");
   if (mqttClient.connect(MQTT_CLIENT_NAME))
   {
-    mqttClient.subscribe(MQTT_CLIENT_NAME);
-    mqttClient.publish(MQTT_CLIENT_NAME, "connected");
+    mqttClient.subscribe(MQTT_CHANNEL);
+    //mqttClient.publish(MQTT_CHANNEL, "connected");
+    Serial.println("Conectado!");
   }
   else
   {
@@ -476,127 +475,49 @@ void HandleMqtt()
 {
   if (!mqttClient.connected())
   {
-    ConnectMqtt();
+    ConnectMqtt(); 
   }
   mqttClient.loop();
 }
 
-//Esta funcion coge el JSON y devuelve el idSensor unicamente.
-
-int deserializeSensorsToInt(int httpResponseCode){
-  if(httpResponseCode>0){
 
 
-    int idSensor = 0;
-    String responseJson = http.getString();
-    DynamicJsonDocument doc(ESP.getMaxFreeBlockSize());
-    DeserializationError error = deserializeJson(doc, responseJson);
-
-    if(error){
-      return -1;
-    }
-
-    JsonArray array = doc.as<JsonArray>();
-    for (JsonObject sensor : array)
-    {
-      idSensor = sensor["idSensor"];
-      String name = sensor["name"];
-      String sensorType = sensor["sensorType"];
-      int idDevice = sensor["idDevice"];
-    }
-
-    return idSensor;
-  }
-  else{
-    return -1;
-  }
-}
-
-//función de prueba para comprobar si el sensor ha cambiado de ID
-
-int checkIdSensor(int idSensor){
-  String serverPath = serverName + "api/devices/" + String(DEVICE_ID) + "/sensors";
-  http.begin(client, serverPath.c_str());
-
-  //TODO: crear funcion que deserialice pero devuelva los datos como entero
-  //deserializeSensorsFromDevice(http.GET());
-
-  int nuevoSensor = deserializeSensorsToInt(http.GET());
-
-
-  if(nuevoSensor != idSensor){
-    return nuevoSensor;
-  }else{
-    return idSensor;
-  }
-
-}
 
 // Run the tests!
 void loop()
 {
-  
-  int idSensor = 18;
-  idSensor = checkIdSensor(idSensor);
-  //GET_tests();
- // POST_tests();
-  GET_DEFINITIVO();
-  PUT_TEST();
-  //POST_DEFINITIVO();
-
   // Update current time using NTP protocol
   timeClient.update();
-
-  // Print current time in serial monitor
-  Serial.println(timeClient.getFormattedTime());
+  float valor = dht.readTemperature();
+  //POST_tests();
+  //GET_tests();
+  //POST_null();
+  POST_sv(valor);
   
-
-  // Depending on the current second (even or odd), write in digital actuator pin HIGH or LOW value
-  if (timeClient.getSeconds() % 2 == 1)
-  {    
-    float sV = digitalRead(sensorPin);
-    Serial.println("Leyendo Sensor");
-    if(sV > 0){
-
-      digitalWrite(actuatorPinB, HIGH);
-      digitalWrite(actuatorPinA, LOW);
-      Serial.println("PIN BLANCO ON | PIN AZUL OFF");
-      POST_sv(idSensor, sV);
-    } else{
-      digitalWrite(actuatorPinB, LOW);
-      digitalWrite(actuatorPinA, HIGH);
-      Serial.println("PIN BLANCO OFF | PIN AZUL ON");
-    }
-
-    
-
-  // Servo moves from 0 to 180 deg at 140 deg/s with sigmoid motion.
-  //pwm.writeServo(analogActuatorPin, 180, 140.0, 0.6);
-
   // Reads analog sensor value and print it by serial monitor
 
-  if(timeClient.getSeconds() % 50 == 0){
-    int analogValue = analogRead(analogSensorPin);
-    Serial.println("Analog sensor value :" + String(analogValue));
-    
-    int digitalValue = digitalRead(digitalSensorPin);
-    if (digitalValue == HIGH)
+  if (mqttmsg == "1")
     {
+      digitalWrite(actuatorPin, HIGH);
       Serial.println("Digital sensor value : ON");
+      //POST_as(actuator_id,1);
     }
-    else
+    else if (mqttmsg == "0")
     {
+      digitalWrite(actuatorPin, LOW);
       Serial.println("Digital sensor value : OFF");
+      //POST_as(actuator_id, 0);
+    } else{
+      Serial.println("NADA " + mqttmsg);
     }
 
-  }
 
-  //QUE PIN ES DE LA PLACA PARA LEER EL SENSOR
   //UNA VEZ TENEMOS LOS DATOS, ¿LOS SUBIMOS A LA BASE DE DATOS? ¿ESPERAMOS A RECIBIR EL DATO DE LA BBDD, O ACTUAMOS Y LUEGO SUBIMOS?
-  //PARA EL ID SENSOR: TENEMOS UNA VARIABLE QUE VAMOS AUMENTANDO, O VAMOS CREANDO VARIABLES? 
-  //PARA AUMENTAR VARIABLE: HACEMOS UN GET, COMPARAMOS CON LA VARIABLE ACTUAL Y DESPUÉS HACEMOS UN POST AL SENSOR CON ESA VARIABLE(IDSENSOR)?
 
+  
   // Reads digital sensor value and print ON or OFF by serial monitor depending on the sensor status (binary)
 
-  HandleMqtt();
+
+    HandleMqtt();
+  
 }

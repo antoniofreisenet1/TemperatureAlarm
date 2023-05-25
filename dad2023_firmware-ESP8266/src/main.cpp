@@ -17,11 +17,13 @@ const int DEVICE_ID = 124;
 const int sensor_id = 72;
 const int actuator_id = 3;
 String mqttmsg;
+int contador = 0;
 
 // VARIABLES
 
 const int sensorPin = 2; //esto es el pin D4
 const int actuatorPin = 12; //esto es el pin D6
+
 
 //DHT Sensor declaration
 DHT dht(sensorPin, DHTTYPE);
@@ -445,6 +447,15 @@ void POST_sv(float valor){
   test_response(http.POST(sensor_value_body2));
   //http.POST("{\'ejemplo\': \'hola\'}");
 }
+
+void POST_actuator(bool status){
+  String sensor_value_body2 = serializeActuatorStatusBody(random(5,30), status, actuator_id, millis());
+  describe("POST ACTUATOR STATUS");
+  String serverPath2 = serverName + "api/actuator_states";
+  http.begin(client, serverPath2.c_str());
+  test_response(http.POST(sensor_value_body2));
+  //http.POST("{\'ejemplo\': \'hola\'}");
+}
 // conecta o reconecta al MQTT
 // consigue conectar -> suscribe a topic y publica un mensaje
 // no -> espera 5 segundos
@@ -492,6 +503,8 @@ void loop()
   //POST_tests();
   //GET_tests();
   //POST_null();
+  if(contador == 10000){
+
   POST_sv(valor);
   
   // Reads analog sensor value and print it by serial monitor
@@ -500,18 +513,19 @@ void loop()
     {
       digitalWrite(actuatorPin, HIGH);
       Serial.println("Digital sensor value : ON");
-      //POST_as(actuator_id,1);
+      POST_actuator(true);
     }
     else if (mqttmsg == "0")
     {
       digitalWrite(actuatorPin, LOW);
       Serial.println("Digital sensor value : OFF");
-      //POST_as(actuator_id, 0);
+      POST_actuator(false);
     } else{
       Serial.println("NADA " + mqttmsg);
     }
-
-
+    contador=0;
+  }
+  contador++;
   //UNA VEZ TENEMOS LOS DATOS, ¿LOS SUBIMOS A LA BASE DE DATOS? ¿ESPERAMOS A RECIBIR EL DATO DE LA BBDD, O ACTUAMOS Y LUEGO SUBIMOS?
 
   
